@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Components.Endpoints.Rendering;
+using Microsoft.AspNetCore.Components.Infrastructure;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
@@ -21,10 +22,12 @@ internal partial class RazorComponentEndpointInvoker : IRazorComponentEndpointIn
 {
     private readonly EndpointHtmlRenderer _renderer;
     private readonly ILogger<RazorComponentEndpointInvoker> _logger;
+    private readonly ComponentsActivityLinkStore _activityLinkStore;
 
     public RazorComponentEndpointInvoker(EndpointHtmlRenderer renderer, ILogger<RazorComponentEndpointInvoker> logger)
     {
         _renderer = renderer;
+        _activityLinkStore = new ComponentsActivityLinkStore(renderer);
         _logger = logger;
     }
 
@@ -39,12 +42,19 @@ internal partial class RazorComponentEndpointInvoker : IRazorComponentEndpointIn
     {
         context.Response.ContentType = RazorComponentResultExecutor.DefaultContentType;
         var isErrorHandler = context.Features.Get<IExceptionHandlerFeature>() is not null;
+        var hasStatusCodePage = context.Features.Get<IStatusCodePagesFeature>() is not null;
+        var isReExecuted = context.Features.Get<IStatusCodeReExecuteFeature>() is not null;
+        var httpActivityContext = context.Features.Get<IHttpActivityFeature>()?.Activity.Context ?? default;
         if (isErrorHandler)
         {
             Log.InteractivityDisabledForErrorHandling(_logger);
         }
-        _renderer.InitializeStreamingRenderingFraming(context, isErrorHandler);
-        EndpointHtmlRenderer.MarkAsAllowingEnhancedNavigation(context);
+        _renderer.InitializeStreamingRenderingFraming(context, isErrorHandler, isReExecuted);
+        if (!isReExecuted)
+        {
+            // re-executed pages have Headers already set up
+            EndpointHtmlRenderer.MarkAsAllowingEnhancedNavigation(context);
+        }
 
         var endpoint = context.GetEndpoint() ?? throw new InvalidOperationException($"An endpoint must be set on the '{nameof(HttpContext)}'.");
 
@@ -74,7 +84,12 @@ internal partial class RazorComponentEndpointInvoker : IRazorComponentEndpointIn
             return Task.CompletedTask;
         });
 
-        await EndpointHtmlRenderer.InitializeStandardComponentServicesAsync(
+        if (httpActivityContext != default)
+        {
+            _activityLinkStore.SetActivityContext(ComponentsActivityLinkStore.Http, httpActivityContext, null);
+        }
+
+        await _renderer.InitializeStandardComponentServicesAsync(
             context,
             componentType: pageComponent,
             handler: result.HandlerName,
@@ -85,6 +100,8 @@ internal partial class RazorComponentEndpointInvoker : IRazorComponentEndpointIn
         await using var writer = new HttpResponseStreamWriter(context.Response.Body, Encoding.UTF8, defaultBufferSize, ArrayPool<byte>.Shared, ArrayPool<char>.Shared);
         using var bufferWriter = new BufferedTextWriter(writer);
 
+        bool isErrorHandlerOrReExecuted = isErrorHandler || isReExecuted;
+
         // Note that we always use Static rendering mode for the top-level output from a RazorComponentResult,
         // because you never want to serialize the invocation of RazorComponentResultHost. Instead, that host
         // component takes care of switching into your desired render mode when it produces its own output.
@@ -92,7 +109,7 @@ internal partial class RazorComponentEndpointInvoker : IRazorComponentEndpointIn
             context,
             rootComponent,
             ParameterView.Empty,
-            waitForQuiescence: result.IsPost || isErrorHandler);
+            waitForQuiescence: result.IsPost || isErrorHandlerOrReExecuted);
 
         Task quiesceTask;
         if (!result.IsPost)
@@ -145,7 +162,7 @@ internal partial class RazorComponentEndpointInvoker : IRazorComponentEndpointIn
         }
 
         // Emit comment containing state.
-        if (!isErrorHandler)
+        if (!isErrorHandlerOrReExecuted)
         {
             var componentStateHtmlContent = await _renderer.PrerenderPersistedStateAsync(context);
             componentStateHtmlContent.WriteTo(bufferWriter, HtmlEncoder.Default);

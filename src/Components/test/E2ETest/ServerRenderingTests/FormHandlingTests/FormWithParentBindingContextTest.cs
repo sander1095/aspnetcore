@@ -49,6 +49,20 @@ public class FormWithParentBindingContextTest : ServerTestBase<BasicTestAppServe
         DispatchToFormCore(dispatchToForm);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CanDispatchToTheDefaultFormWithReExecutionMiddleware(bool suppressEnhancedNavigation)
+    {
+        var dispatchToForm = new DispatchToForm(this)
+        {
+            Url = "reexecution/forms/default-form",
+            FormCssSelector = "form",
+            SuppressEnhancedNavigation = suppressEnhancedNavigation,
+        };
+        DispatchToFormCore(dispatchToForm);
+    }
+
     [Fact]
     public void PlainFormIsNotEnhancedByDefault()
     {
@@ -894,6 +908,21 @@ public class FormWithParentBindingContextTest : ServerTestBase<BasicTestAppServe
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
+    public void FormNoAntiforgeryReturnBadRequestWithReExecutionMiddleware(bool suppressEnhancedNavigation)
+    {
+        var dispatchToForm = new DispatchToForm(this)
+        {
+            Url = "reexecution/forms/no-antiforgery",
+            FormCssSelector = "form",
+            ShouldCauseBadRequest = true,
+            SuppressEnhancedNavigation = suppressEnhancedNavigation,
+        };
+        DispatchToFormCore(dispatchToForm);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
     public void FormNoAntiforgeryReturnBadRequest(bool suppressEnhancedNavigation)
     {
         var dispatchToForm = new DispatchToForm(this)
@@ -966,6 +995,21 @@ public class FormWithParentBindingContextTest : ServerTestBase<BasicTestAppServe
         var dispatchToForm = new DispatchToForm(this)
         {
             Url = "forms/no-handler",
+            FormCssSelector = "form",
+            ShouldCauseBadRequest = true,
+            SuppressEnhancedNavigation = suppressEnhancedNavigation,
+        };
+        DispatchToFormCore(dispatchToForm);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void FormNoHandlerReturnBadRequestWithReExecutionMiddleware(bool suppressEnhancedNavigation)
+    {
+        var dispatchToForm = new DispatchToForm(this)
+        {
+            Url = "reexecution/forms/no-handler",
             FormCssSelector = "form",
             ShouldCauseBadRequest = true,
             SuppressEnhancedNavigation = suppressEnhancedNavigation,
@@ -1309,7 +1353,7 @@ public class FormWithParentBindingContextTest : ServerTestBase<BasicTestAppServe
     }
 
     [Theory]
-    [InlineData(true)]
+    // [InlineData(true)] QuarantinedTest: https://github.com/dotnet/aspnetcore/issues/61882
     [InlineData(false)]
     public void CanUseFormWithMethodGet(bool suppressEnhancedNavigation)
     {
@@ -1377,8 +1421,8 @@ public class FormWithParentBindingContextTest : ServerTestBase<BasicTestAppServe
 
         Browser.Exists(By.Id("submit-button")).Click();
 
-        Assert.False(Browser.Exists(By.Id("checkbox")).Selected);
-        Assert.False(Browser.Exists(By.Id("radio-button")).Selected);
+        WaitAssert.False(Browser, () => Browser.Exists(By.Id("checkbox")).Selected);
+        WaitAssert.False(Browser, () => Browser.Exists(By.Id("radio-button")).Selected);
     }
 
     [Fact]
