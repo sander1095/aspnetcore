@@ -1,8 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Text.Json.Nodes;
-
 namespace Microsoft.AspNetCore.OpenApi;
 
 internal static class OpenApiDocumentExtensions
@@ -24,25 +22,7 @@ internal static class OpenApiDocumentExtensions
         // AddComponent will only add the schema if it doesn't already exist.
         var schemaAdded = document.AddComponent(schemaId, schema);
 
-        object? description = null;
-        object? example = null;
-        object? defaultAnnotation = null;
-        object? deprecatedAnnotation = null;
-        if (schema is OpenApiSchema { Metadata: not null } actualSchema)
-        {
-            actualSchema.Metadata.TryGetValue(OpenApiConstants.RefDescriptionAnnotation, out description);
-            actualSchema.Metadata.TryGetValue(OpenApiConstants.RefExampleAnnotation, out example);
-            actualSchema.Metadata.TryGetValue(OpenApiConstants.RefDefaultAnnotation, out defaultAnnotation);
-            actualSchema.Metadata.TryGetValue(OpenApiConstants.RefDeprecatedAnnotation, out deprecatedAnnotation);
-        }
-
-        schemaReference = new OpenApiSchemaReference(schemaId, document)
-        {
-            Description = description as string,
-            Examples = example is JsonNode exampleJson ? [exampleJson] : null,
-            Default = defaultAnnotation as JsonNode,
-            Deprecated = deprecatedAnnotation is true,
-        };
+        schemaReference = new OpenApiSchemaReference(schemaId, document);
 
         return schemaAdded;
     }

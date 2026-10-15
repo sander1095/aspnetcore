@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Nodes;
 
 namespace Microsoft.AspNetCore.OpenApi;
 
@@ -11,7 +12,7 @@ internal static class OpenApiSchemaExtensions
 
     public static IOpenApiSchema CreateOneOfNullableWrapper(this IOpenApiSchema originalSchema)
     {
-        var wrapper = new OpenApiSchema
+        return new OpenApiSchema
         {
             OneOf =
             [
@@ -19,24 +20,45 @@ internal static class OpenApiSchemaExtensions
                 originalSchema
             ]
         };
+    }
 
-        // Move use-site annotations from the schema reference onto the wrapper because annotations in a oneOf branch
-        // only apply when that branch matches (so they'd be lost for null values) and most tooling only reads them at the property level.
-        if (originalSchema is OpenApiSchemaReference schemaReference)
+    /// <summary>
+    /// Applies the use-site annotations that were captured in the x-ref-* metadata of
+    /// <paramref name="annotatedSchema"/> to <paramref name="useSiteSchema"/>.
+    /// </summary>
+    /// <param name="useSiteSchema">The schema that represents the use of a componentized schema: its schema reference, or the nullable wrapper around it.</param>
+    /// <param name="annotatedSchema">The unresolved schema that carries the use-site annotations as metadata.</param>
+    public static void ApplyReferenceAnnotations(this IOpenApiSchema useSiteSchema, OpenApiSchema annotatedSchema)
+    {
+        object? description = null;
+        object? example = null;
+        object? defaultAnnotation = null;
+        object? deprecatedAnnotation = null;
+        if (annotatedSchema.Metadata is not null)
         {
-            var reference = schemaReference.Reference;
-            wrapper.Description = reference.Description;
-            wrapper.Deprecated = reference.Deprecated is true;
-            wrapper.Default = reference.Default;
-            wrapper.Examples = reference.Examples;
-
-            reference.Description = null;
-            reference.Deprecated = null;
-            reference.Default = null;
-            reference.Examples = null;
+            annotatedSchema.Metadata.TryGetValue(OpenApiConstants.RefDescriptionAnnotation, out description);
+            annotatedSchema.Metadata.TryGetValue(OpenApiConstants.RefExampleAnnotation, out example);
+            annotatedSchema.Metadata.TryGetValue(OpenApiConstants.RefDefaultAnnotation, out defaultAnnotation);
+            annotatedSchema.Metadata.TryGetValue(OpenApiConstants.RefDeprecatedAnnotation, out deprecatedAnnotation);
         }
 
-        return wrapper;
+        List<JsonNode>? examples = example is JsonNode exampleJson ? [exampleJson] : null;
+
+        switch (useSiteSchema)
+        {
+            case OpenApiSchemaReference schemaReference:
+                schemaReference.Description = description as string;
+                schemaReference.Examples = examples;
+                schemaReference.Default = defaultAnnotation as JsonNode;
+                schemaReference.Deprecated = deprecatedAnnotation is true;
+                break;
+            case OpenApiSchema schema:
+                schema.Description = description as string;
+                schema.Examples = examples;
+                schema.Default = defaultAnnotation as JsonNode;
+                schema.Deprecated = deprecatedAnnotation is true;
+                break;
+        }
     }
 
     public static void MakeArrayItemsNullable(this IOpenApiSchema schema)

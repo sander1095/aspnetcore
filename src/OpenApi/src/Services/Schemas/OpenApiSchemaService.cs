@@ -262,7 +262,7 @@ internal sealed class OpenApiSchemaService(
         return schema;
     }
 
-    internal async Task<IOpenApiSchema> GetOrCreateSchemaAsync(OpenApiDocument document, Type type, IServiceProvider scopedServiceProvider, IOpenApiSchemaTransformer[] schemaTransformers, ApiParameterDescription? parameterDescription = null, CancellationToken cancellationToken = default)
+    internal async Task<IOpenApiSchema> GetOrCreateSchemaAsync(OpenApiDocument document, Type type, IServiceProvider scopedServiceProvider, IOpenApiSchemaTransformer[] schemaTransformers, ApiParameterDescription? parameterDescription = null, bool isNullable = false, CancellationToken cancellationToken = default)
     {
         // For non-body enum parameters, check if a naming policy transforms the enum values.
         // If so, skip componentization and return an inline schema with the original C# member
@@ -314,7 +314,7 @@ internal sealed class OpenApiSchemaService(
             return optionsMonitor.Get(documentName).CreateSchemaReferenceId(jsonTypeInfo);
         });
 
-        return ResolveReferenceForSchema(document, schema, baseSchemaId);
+        return ResolveReferenceForSchema(document, schema, baseSchemaId, isNullable: isNullable);
     }
 
     private static bool IsNonBodyBindingSource(BindingSource bindingSource) => bindingSource == BindingSource.Header
@@ -323,7 +323,23 @@ internal sealed class OpenApiSchemaService(
         || bindingSource == BindingSource.Form
         || bindingSource == BindingSource.FormFile;
 
-    internal static IOpenApiSchema ResolveReferenceForSchema(OpenApiDocument document, IOpenApiSchema inputSchema, string? rootSchemaId, string? baseSchemaId = null)
+    internal static IOpenApiSchema ResolveReferenceForSchema(OpenApiDocument document, IOpenApiSchema inputSchema, string? rootSchemaId, string? baseSchemaId = null, bool isNullable = false)
+    {
+        var resolvedSchema = ResolveReferenceForSchemaCore(document, inputSchema, rootSchemaId, baseSchemaId);
+        var useSiteSchema = isNullable ? resolvedSchema.CreateOneOfNullableWrapper() : resolvedSchema;
+
+        // Apply use-site annotations to the outermost schema, so they end up on the nullable wrapper rather than
+        // its schema reference, because annotations in a oneOf branch only apply when that branch matches
+        // (so they'd be lost for null values) and most tooling only reads them at the property level.
+        if (resolvedSchema is OpenApiSchemaReference && inputSchema is OpenApiSchema annotatedSchema)
+        {
+            useSiteSchema.ApplyReferenceAnnotations(annotatedSchema);
+        }
+
+        return useSiteSchema;
+    }
+
+    private static IOpenApiSchema ResolveReferenceForSchemaCore(OpenApiDocument document, IOpenApiSchema inputSchema, string? rootSchemaId, string? baseSchemaId)
     {
         var schema = UnwrapOpenApiSchema(inputSchema);
 
@@ -378,17 +394,10 @@ internal sealed class OpenApiSchemaService(
             // (e.g. SortedDictionary) may disallow modifying the collection while enumerating it.
             foreach (var (key, propertyValue) in schema.Properties.ToList())
             {
-                var resolvedProperty = ResolveReferenceForSchema(document, propertyValue, rootSchemaId);
-                if (propertyValue is OpenApiSchema targetSchema &&
-                    targetSchema.Metadata?.TryGetValue(OpenApiConstants.NullableProperty, out var isNullableProperty) == true &&
-                    isNullableProperty is true)
-                {
-                    schema.Properties[key] = resolvedProperty.CreateOneOfNullableWrapper();
-                }
-                else
-                {
-                    schema.Properties[key] = resolvedProperty;
-                }
+                var isNullableProperty = propertyValue is OpenApiSchema targetSchema &&
+                    targetSchema.Metadata?.TryGetValue(OpenApiConstants.NullableProperty, out var isNullablePropertyValue) == true &&
+                    isNullablePropertyValue is true;
+                schema.Properties[key] = ResolveReferenceForSchema(document, propertyValue, rootSchemaId, isNullable: isNullableProperty);
             }
         }
 

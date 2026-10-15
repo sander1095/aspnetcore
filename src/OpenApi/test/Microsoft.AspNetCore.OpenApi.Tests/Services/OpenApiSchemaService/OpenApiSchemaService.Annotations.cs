@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Net.Http;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.AspNetCore.Routing;
 
@@ -306,6 +307,31 @@ public partial class OpenApiSchemaServiceTests : OpenApiDocumentServiceTestBase
         {
             Assert.Null(branch!["default"]);
         }
+    }
+
+    [Fact]
+    public async Task SchemaAnnotations_AppliedToNullableWrapperForNullableRequestBody()
+    {
+        var builder = CreateBuilder();
+
+        builder.MapPost("/", ([FromBody, DefaultValue(Status.Approved)] Status? status) => { });
+
+        await VerifyOpenApiDocument(builder, document =>
+        {
+            var operation = document.Paths["/"].Operations[HttpMethod.Post];
+            var content = Assert.Single(operation.RequestBody.Content);
+
+            var schema = Assert.IsType<OpenApiSchema>(content.Value.Schema);
+            Assert.Equal("Approved", schema.Default?.GetValue<string>());
+            Assert.Collection(schema.OneOf,
+                item => Assert.Equal(JsonSchemaType.Null, item.Type),
+                item =>
+                {
+                    var reference = Assert.IsType<OpenApiSchemaReference>(item);
+                    Assert.Equal("Status", reference.Reference.Id);
+                    Assert.Null(reference.Reference.Default);
+                });
+        });
     }
 
 #nullable enable

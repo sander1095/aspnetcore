@@ -449,16 +449,13 @@ internal sealed class OpenApiDocumentService(
                 {
                     if (IsServerSentEventsResponse(contentType, responseType, out var eventDataType))
                     {
-                        var dataSchema = await _componentService.GetOrCreateSchemaAsync(document, eventDataType, scopedServiceProvider, schemaTransformers, null, cancellationToken);
+                        var dataSchema = await _componentService.GetOrCreateSchemaAsync(document, eventDataType, scopedServiceProvider, schemaTransformers, null, cancellationToken: cancellationToken);
                         schema = CreateServerSentEventsItemSchema(document, dataSchema);
                         useItemSchema = true;
                     }
                     else
                     {
-                        schema = await _componentService.GetOrCreateSchemaAsync(document, responseType, scopedServiceProvider, schemaTransformers, null, cancellationToken);
-                        schema = apiResponseType.ShouldApplyNullableResponseSchema(apiDescription)
-                            ? schema.CreateOneOfNullableWrapper()
-                            : schema;
+                        schema = await _componentService.GetOrCreateSchemaAsync(document, responseType, scopedServiceProvider, schemaTransformers, null, isNullable: apiResponseType.ShouldApplyNullableResponseSchema(apiDescription), cancellationToken);
                     }
                 }
 
@@ -931,10 +928,7 @@ internal sealed class OpenApiDocumentService(
         foreach (var requestFormat in supportedRequestFormats)
         {
             var contentType = requestFormat.MediaType;
-            var schema = await _componentService.GetOrCreateSchemaAsync(document, bodyParameter.Type, scopedServiceProvider, schemaTransformers, bodyParameter, cancellationToken: cancellationToken);
-            schema = bodyParameter.ShouldApplyNullableRequestSchema()
-                ? schema.CreateOneOfNullableWrapper()
-                : schema;
+            var schema = await _componentService.GetOrCreateSchemaAsync(document, bodyParameter.Type, scopedServiceProvider, schemaTransformers, bodyParameter, isNullable: bodyParameter.ShouldApplyNullableRequestSchema(), cancellationToken: cancellationToken);
             requestBody.Content[contentType] = new OpenApiMediaType { Schema = schema };
         }
 
