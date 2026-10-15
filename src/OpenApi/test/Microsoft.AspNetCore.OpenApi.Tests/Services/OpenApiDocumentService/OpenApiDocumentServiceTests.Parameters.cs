@@ -552,12 +552,12 @@ public partial class OpenApiDocumentServiceTests : OpenApiDocumentServiceTestBas
                         "description": "The name of the item"
                       },
                       "file": {
+                        "description": "The file to upload",
                         "oneOf": [
                           {
                             "type": "null"
                           },
                           {
-                            "description": "The file to upload",
                             "$ref": "#/components/schemas/IFormFile"
                           }
                         ]

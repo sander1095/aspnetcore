@@ -11,7 +11,7 @@ internal static class OpenApiSchemaExtensions
 
     public static IOpenApiSchema CreateOneOfNullableWrapper(this IOpenApiSchema originalSchema)
     {
-        return new OpenApiSchema
+        var wrapper = new OpenApiSchema
         {
             OneOf =
             [
@@ -19,6 +19,25 @@ internal static class OpenApiSchemaExtensions
                 originalSchema
             ]
         };
+
+        // Use-site annotations applied to the schema reference (see AddOpenApiSchemaByReference)
+        // describe the property or parameter rather than the referenced type, so move them onto
+        // the wrapper instead of leaving them nested inside one of the oneOf branches.
+        if (originalSchema is OpenApiSchemaReference schemaReference)
+        {
+            var reference = schemaReference.Reference;
+            wrapper.Description = reference.Description;
+            wrapper.Deprecated = reference.Deprecated is true;
+            wrapper.Default = reference.Default;
+            wrapper.Examples = reference.Examples;
+
+            reference.Description = null;
+            reference.Deprecated = null;
+            reference.Default = null;
+            reference.Examples = null;
+        }
+
+        return wrapper;
     }
 
     public static void MakeArrayItemsNullable(this IOpenApiSchema schema)

@@ -3,6 +3,7 @@
 
 using System.ComponentModel;
 using System.Net.Http;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.AspNetCore.Routing;
@@ -229,6 +230,99 @@ public partial class OpenApiSchemaServiceTests : OpenApiDocumentServiceTestBase
             Assert.False(schema.Deprecated);
         });
     }
+
+    [Fact]
+    public async Task SchemaAnnotations_AppliedToNullableWrapperForNullableSchemaReferenceProperty()
+    {
+        var builder = CreateBuilder();
+
+        builder.MapPost("/", (DtoWithAnnotatedNullableReferenceProperties dto) => { });
+
+        await VerifyOpenApiDocument(builder, document =>
+        {
+            var operation = document.Paths["/"].Operations[HttpMethod.Post];
+            var content = Assert.Single(operation.RequestBody.Content);
+            var schema = content.Value.Schema;
+
+            var optionalNested = Assert.IsType<OpenApiSchema>(schema.Properties["optionalNested"]);
+            Assert.Equal("The nested model, when present.", optionalNested.Description);
+            Assert.True(optionalNested.Deprecated);
+            Assert.Collection(optionalNested.OneOf,
+                item => Assert.Equal(JsonSchemaType.Null, item.Type),
+                item =>
+                {
+                    var reference = Assert.IsType<OpenApiSchemaReference>(item);
+                    Assert.Equal("NonObsoleteChildDto", reference.Reference.Id);
+                    Assert.Null(reference.Reference.Description);
+                    Assert.Null(reference.Reference.Deprecated);
+                });
+
+            var requiredNested = Assert.IsType<OpenApiSchemaReference>(schema.Properties["requiredNested"]);
+            Assert.Equal("Always present.", requiredNested.Reference.Description);
+            Assert.True(requiredNested.Reference.Deprecated);
+
+            var optionalEnum = Assert.IsType<OpenApiSchema>(schema.Properties["optionalEnum"]);
+            Assert.Equal(1, optionalEnum.Default?.GetValue<int>());
+            Assert.Null(optionalEnum.Description);
+            Assert.Collection(optionalEnum.OneOf,
+                item => Assert.Equal(JsonSchemaType.Null, item.Type),
+                item =>
+                {
+                    var reference = Assert.IsType<OpenApiSchemaReference>(item);
+                    Assert.Equal("SampleEnum", reference.Reference.Id);
+                    Assert.Null(reference.Reference.Default);
+                });
+
+            Assert.Equal("Enum: SampleEnum", document.Components.Schemas["SampleEnum"].Description);
+            Assert.Null(document.Components.Schemas["SampleEnum"].Default);
+        });
+    }
+
+    [Theory]
+    [InlineData(OpenApiSpecVersion.OpenApi3_0)]
+    [InlineData(OpenApiSpecVersion.OpenApi3_1)]
+    public async Task SchemaAnnotations_SerializedOnNullableWrapperForNullableSchemaReferenceProperty(OpenApiSpecVersion specVersion)
+    {
+        var builder = CreateBuilder();
+
+        builder.MapPost("/", (DtoWithAnnotatedNullableReferenceProperties dto) => { });
+
+        var document = await VerifyOpenApiDocument(builder, _ => { });
+        var json = JsonNode.Parse(await document.SerializeAsJsonAsync(specVersion))!;
+        var properties = json["components"]!["schemas"]!["DtoWithAnnotatedNullableReferenceProperties"]!["properties"]!;
+
+        var optionalNested = properties["optionalNested"]!;
+        Assert.Equal("The nested model, when present.", optionalNested["description"]?.GetValue<string>());
+        Assert.True(optionalNested["deprecated"]?.GetValue<bool>());
+        foreach (var branch in optionalNested["oneOf"]!.AsArray())
+        {
+            Assert.Null(branch!["description"]);
+            Assert.Null(branch["deprecated"]);
+        }
+
+        var optionalEnum = properties["optionalEnum"]!;
+        Assert.Equal(1, optionalEnum["default"]?.GetValue<int>());
+        foreach (var branch in optionalEnum["oneOf"]!.AsArray())
+        {
+            Assert.Null(branch!["default"]);
+        }
+    }
+
+#nullable enable
+    public class DtoWithAnnotatedNullableReferenceProperties
+    {
+        [Description("The nested model, when present.")]
+        [Obsolete("Use RequiredNested instead.")]
+        public NonObsoleteChildDto? OptionalNested { get; set; }
+
+        [Description("Always present.")]
+        [Obsolete("Use OptionalNested instead.")]
+        public NonObsoleteChildDto RequiredNested { get; set; } = new();
+
+        [DefaultValue(SampleEnum.SecondValue)]
+        public SampleEnum? OptionalEnum { get; set; }
+    }
+#nullable restore
 
     [Obsolete("This type is deprecated.")]
     public class ObsoleteDto
