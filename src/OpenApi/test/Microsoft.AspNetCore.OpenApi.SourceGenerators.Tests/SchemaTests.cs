@@ -422,4 +422,59 @@ public class RootModel
             Assert.True(JsonNode.DeepEquals(JsonNode.Parse("""{ "street": "ModelInline2Prop" }"""), modelInline2Prop.Examples![0]));
         });
     }
+
+    [Fact]
+    public async Task XmlCommentsOnNullablePropertiesShouldApplyToNullableWrapper()
+    {
+        var source = """
+#nullable enable
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+
+var builder = WebApplication.CreateBuilder();
+
+builder.Services.AddOpenApi();
+
+var app = builder.Build();
+
+app.MapPost("/example", (RootModel model) => { });
+
+app.Run();
+
+public class Address
+{
+    public string Street { get; set; } = "";
+}
+
+public class RootModel
+{
+    /// <summary>
+    /// Comment on property OptionalAddress.
+    /// </summary>
+    /// <example>
+    /// { "street": "OptionalAddressProp" }
+    /// </example>
+    public Address? OptionalAddress { get; set; }
+}
+""";
+        var generator = new XmlCommentGenerator();
+        await SnapshotTestHelper.Verify(source, generator, out var compilation);
+        await SnapshotTestHelper.VerifyOpenApi(compilation, document =>
+        {
+            var rootModelSchema = document.Components.Schemas["RootModel"];
+
+            var optionalAddress = Assert.IsType<OpenApiSchema>(rootModelSchema.Properties["optionalAddress"]);
+            Assert.Equal("Comment on property OptionalAddress.", optionalAddress.Description);
+            Assert.True(JsonNode.DeepEquals(JsonNode.Parse("""{ "street": "OptionalAddressProp" }"""), optionalAddress.Examples![0]));
+            Assert.Collection(optionalAddress.OneOf!,
+                item => Assert.Equal(JsonSchemaType.Null, item.Type),
+                item =>
+                {
+                    var reference = Assert.IsType<OpenApiSchemaReference>(item);
+                    Assert.Equal("Address", reference.Reference.Id);
+                    Assert.Null(reference.Reference.Description);
+                    Assert.Null(reference.Reference.Examples);
+                });
+        });
+    }
 }
