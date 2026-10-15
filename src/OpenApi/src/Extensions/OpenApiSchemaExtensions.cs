@@ -20,9 +20,8 @@ internal static class OpenApiSchemaExtensions
             ]
         };
 
-        // Use-site annotations applied to the schema reference (see AddOpenApiSchemaByReference)
-        // describe the property or parameter rather than the referenced type, so move them onto
-        // the wrapper instead of leaving them nested inside one of the oneOf branches.
+        // Move use-site annotations from the schema reference onto the wrapper because annotations in a oneOf branch
+        // only apply when that branch matches (so they'd be lost for null values) and most tooling only reads them at the property level.
         if (originalSchema is OpenApiSchemaReference schemaReference)
         {
             var reference = schemaReference.Reference;
